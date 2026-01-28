@@ -23,7 +23,6 @@ export default function CertifiedExport({ document, onClose }: CertifiedExportPr
   const [translatorName, setTranslatorName] = useState('');
   const [translatorCredentials, setTranslatorCredentials] = useState('');
   const [includeOriginal, setIncludeOriginal] = useState(true);
-  const [format, setFormat] = useState<'pdf' | 'docx'>('pdf');
 
   const languageInfo = SUPPORTED_LANGUAGES[document.originalLanguage];
 
@@ -191,40 +190,9 @@ ${document.originalText}
               <span className="text-sm text-gray-600">Include original {languageInfo?.name} text</span>
             </label>
 
-            <div>
-              <label className="block text-sm text-gray-600 mb-2">Export Format</label>
-              <div className="flex gap-3">
-                <label className={`
-                  flex-1 flex items-center justify-center gap-2 p-3 border rounded-lg cursor-pointer transition-all
-                  ${format === 'pdf' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-300 hover:border-gray-400'}
-                `}>
-                  <input
-                    type="radio"
-                    name="format"
-                    value="pdf"
-                    checked={format === 'pdf'}
-                    onChange={() => setFormat('pdf')}
-                    className="sr-only"
-                  />
-                  <FileText className="w-4 h-4" />
-                  <span className="text-sm font-medium">PDF</span>
-                </label>
-                <label className={`
-                  flex-1 flex items-center justify-center gap-2 p-3 border rounded-lg cursor-pointer transition-all
-                  ${format === 'docx' ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-300 hover:border-gray-400'}
-                `}>
-                  <input
-                    type="radio"
-                    name="format"
-                    value="docx"
-                    checked={format === 'docx'}
-                    onChange={() => setFormat('docx')}
-                    className="sr-only"
-                  />
-                  <FileText className="w-4 h-4" />
-                  <span className="text-sm font-medium">DOCX</span>
-                </label>
-              </div>
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <FileText className="w-4 h-4" />
+              <span>Export format: Plain Text (.txt)</span>
             </div>
           </div>
 

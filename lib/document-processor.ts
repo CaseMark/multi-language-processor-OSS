@@ -1,7 +1,9 @@
 /**
- * Client-side document processor for extracting text from PDFs, RTF files, and text files.
- * Uses pdfjs-dist for PDF text extraction and rtf-parser for RTF files (fast, no API needed).
+ * Client-side document processor for extracting text from PDFs, RTF files, text files, and images.
+ * Uses pdfjs-dist for PDF text extraction, rtf-parser for RTF files, and Case.dev OCR for scanned documents/images.
  */
+
+import { authenticatedFetch } from '@/lib/case-dev/api-key';
 
 export interface ExtractionResult {
   text: string;
@@ -28,9 +30,224 @@ async function loadPdfJs() {
 }
 
 /**
- * Extract text from a PDF file using pdfjs-dist (client-side)
+ * Upload a file to Case.dev Vaults and get a download URL for OCR processing
  */
-async function extractTextFromPDF(file: File): Promise<ExtractionResult> {
+async function uploadToVaultsForOCR(file: File): Promise<string> {
+  // First, get or create a vault for OCR processing
+  // We'll use a default vault ID or create one if needed
+  const listResponse = await authenticatedFetch('/api/vaults', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'list-vaults' }),
+  });
+
+  let vaultId: string;
+
+  if (listResponse.ok) {
+    const vaults = await listResponse.json();
+    // Look for an existing OCR vault or use the first available
+    const ocrVault = vaults.vaults?.find((v: any) => v.name === 'mlp-ocr-processing');
+    if (ocrVault) {
+      vaultId = ocrVault.id;
+    } else if (vaults.vaults?.length > 0) {
+      vaultId = vaults.vaults[0].id;
+    } else {
+      // Create a new vault for OCR processing
+      const createResponse = await authenticatedFetch('/api/vaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          name: 'mlp-ocr-processing',
+          description: 'Vault for Multi-Language Processor OCR documents',
+        }),
+      });
+
+      if (!createResponse.ok) {
+        throw new Error('Failed to create vault for OCR processing');
+      }
+
+      const newVault = await createResponse.json();
+      vaultId = newVault.id;
+    }
+  } else {
+    throw new Error('Failed to list vaults');
+  }
+
+  // Get presigned upload URL
+  const uploadResponse = await authenticatedFetch('/api/vaults', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'upload',
+      vaultId,
+      filename: file.name,
+      contentType: file.type || 'application/octet-stream',
+      sizeBytes: file.size,
+      metadata: {
+        source: 'multi-language-processor',
+        purpose: 'ocr',
+      },
+    }),
+  });
+
+  if (!uploadResponse.ok) {
+    const error = await uploadResponse.json();
+    throw new Error(error.error || 'Failed to get upload URL');
+  }
+
+  const { uploadUrl, objectId } = await uploadResponse.json();
+  console.log(`[DocProcessor] Got upload URL for objectId: ${objectId}`);
+
+  // Upload the file directly to the presigned URL
+  const putResponse = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+    },
+    body: file,
+  });
+
+  if (!putResponse.ok) {
+    throw new Error('Failed to upload file to vault');
+  }
+
+  console.log(`[DocProcessor] File uploaded to vault, fetching download URL...`);
+
+  // Now get the download URL by calling the 'get' action
+  const getResponse = await authenticatedFetch('/api/vaults', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'get',
+      vaultId,
+      objectId,
+    }),
+  });
+
+  if (!getResponse.ok) {
+    const error = await getResponse.json();
+    throw new Error(error.error || 'Failed to get download URL from vault');
+  }
+
+  const vaultObject = await getResponse.json();
+  const downloadUrl = vaultObject.downloadUrl;
+
+  if (!downloadUrl) {
+    throw new Error('Vault object does not have a download URL');
+  }
+
+  console.log(`[DocProcessor] Got download URL: ${downloadUrl.substring(0, 50)}...`);
+  return downloadUrl;
+}
+
+/**
+ * Process a document using Case.dev OCR
+ */
+async function processWithOCR(file: File, onProgress?: (status: string) => void): Promise<ExtractionResult> {
+  console.log(`[DocProcessor] Starting OCR for ${file.name}`);
+  onProgress?.('Uploading document...');
+
+  // Upload to Vaults to get a URL
+  const documentUrl = await uploadToVaultsForOCR(file);
+
+  onProgress?.('Submitting for OCR...');
+
+  // Submit for OCR processing
+  const processResponse = await authenticatedFetch('/api/ocr', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'process',
+      documentUrl,
+      engine: 'doctr', // Best quality engine
+    }),
+  });
+
+  if (!processResponse.ok) {
+    const error = await processResponse.json();
+    throw new Error(error.error || 'Failed to submit document for OCR');
+  }
+
+  const { id: jobId } = await processResponse.json();
+  console.log(`[DocProcessor] OCR job submitted: ${jobId}`);
+
+  onProgress?.('Processing OCR...');
+
+  // Poll for completion
+  let attempts = 0;
+  const maxAttempts = 60; // 2 minutes max
+  const pollInterval = 2000; // 2 seconds
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, pollInterval));
+    attempts++;
+
+    const statusResponse = await authenticatedFetch('/api/ocr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'status',
+        jobId,
+      }),
+    });
+
+    if (!statusResponse.ok) {
+      console.warn(`[DocProcessor] OCR status check failed, attempt ${attempts}`);
+      continue;
+    }
+
+    const status = await statusResponse.json();
+    console.log(`[DocProcessor] OCR status: ${status.status}`);
+
+    if (status.status === 'completed') {
+      // Status is complete, now download the actual text
+      onProgress?.('Downloading OCR results...');
+
+      const downloadResponse = await authenticatedFetch('/api/ocr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'download',
+          jobId,
+          format: 'text',
+        }),
+      });
+
+      if (!downloadResponse.ok) {
+        const error = await downloadResponse.json();
+        throw new Error(error.error || 'Failed to download OCR results');
+      }
+
+      const result = await downloadResponse.json();
+      const text = result.text || '';
+      const pageCount = status.page_count || status.pageCount || 1;
+
+      console.log(`[DocProcessor] OCR complete: ${text.length} chars extracted, ${pageCount} pages`);
+
+      return {
+        text,
+        pageCount,
+        method: 'ocr',
+      };
+    } else if (status.status === 'failed') {
+      throw new Error(status.error || 'OCR processing failed');
+    }
+
+    // Update progress
+    if (status.progress) {
+      onProgress?.(`Processing OCR... ${Math.round(status.progress * 100)}%`);
+    }
+  }
+
+  throw new Error('OCR processing timed out');
+}
+
+/**
+ * Extract text from a PDF file using pdfjs-dist (client-side)
+ * Falls back to OCR if the PDF appears to be scanned/image-based
+ */
+async function extractTextFromPDF(file: File, onProgress?: (status: string) => void): Promise<ExtractionResult> {
   try {
     const pdfjs = await loadPdfJs();
     const arrayBuffer = await file.arrayBuffer();
@@ -87,10 +304,10 @@ async function extractTextFromPDF(file: File): Promise<ExtractionResult> {
 
     const fullText = textParts.join('\n\n');
 
-    // If we got very little text, the PDF might be scanned/image-based
+    // If we got very little text, the PDF might be scanned/image-based - use OCR
     if (fullText.trim().length < 50 && pageCount > 0) {
-      console.log('[DocProcessor] PDF appears to be scanned or image-based');
-      throw new Error('This PDF appears to be a scanned document or image-based. Please upload a PDF with selectable text.');
+      console.log('[DocProcessor] PDF appears to be scanned or image-based, using OCR');
+      return processWithOCR(file, onProgress);
     }
 
     console.log(`[DocProcessor] Extracted ${fullText.length} chars from ${pageCount} pages`);
@@ -101,8 +318,12 @@ async function extractTextFromPDF(file: File): Promise<ExtractionResult> {
       method: 'pdf-text',
     };
   } catch (error) {
-    console.error('[DocProcessor] PDF extraction error:', error);
-    throw new Error('Failed to extract text from PDF. Please ensure the file is a valid PDF with selectable text.');
+    // If PDF extraction fails, try OCR as fallback
+    if (error instanceof Error && error.message.includes('OCR')) {
+      throw error; // Re-throw OCR errors
+    }
+    console.log('[DocProcessor] PDF extraction failed, trying OCR fallback');
+    return processWithOCR(file, onProgress);
   }
 }
 
@@ -179,6 +400,14 @@ async function extractTextFromRTF(file: File): Promise<ExtractionResult> {
 }
 
 /**
+ * Extract text from an image using OCR
+ */
+async function extractTextFromImage(file: File, onProgress?: (status: string) => void): Promise<ExtractionResult> {
+  console.log(`[DocProcessor] Processing image with OCR: ${file.name}`);
+  return processWithOCR(file, onProgress);
+}
+
+/**
  * Convert a file to base64 for server-side OCR
  */
 export async function fileToBase64(file: File): Promise<string> {
@@ -197,9 +426,12 @@ export async function fileToBase64(file: File): Promise<string> {
 
 /**
  * Main function to process a document.
- * Returns extracted text if possible, or indicates OCR is needed.
+ * Returns extracted text, using OCR for scanned documents and images.
  */
-export async function processDocument(file: File): Promise<ExtractionResult> {
+export async function processDocument(
+  file: File,
+  onProgress?: (status: string) => void
+): Promise<ExtractionResult> {
   const mimeType = file.type;
   const fileName = file.name.toLowerCase();
 
@@ -210,7 +442,7 @@ export async function processDocument(file: File): Promise<ExtractionResult> {
   }
 
   if (mimeType === 'application/pdf') {
-    return extractTextFromPDF(file);
+    return extractTextFromPDF(file, onProgress);
   }
 
   // Handle RTF files (MIME type can be application/rtf or text/rtf, or empty for .rtf files)
@@ -218,5 +450,14 @@ export async function processDocument(file: File): Promise<ExtractionResult> {
     return extractTextFromRTF(file);
   }
 
-  throw new Error(`Unsupported file type: ${mimeType}. Only PDF, RTF, and text files are supported.`);
+  // Handle images - use OCR
+  if (mimeType.startsWith('image/') || 
+      fileName.endsWith('.png') || 
+      fileName.endsWith('.jpg') || 
+      fileName.endsWith('.jpeg') || 
+      fileName.endsWith('.webp')) {
+    return extractTextFromImage(file, onProgress);
+  }
+
+  throw new Error(`Unsupported file type: ${mimeType}. Supported: PDF, RTF, TXT, and images (PNG, JPEG, WebP).`);
 }
