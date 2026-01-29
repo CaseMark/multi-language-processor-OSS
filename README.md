@@ -1,84 +1,114 @@
-# Create Legal App
+# Multi-Language Document Processor
 
-**The Agent-Optimized Legal Tech Starter Kit.**
+A document processing application that extracts text from images and PDFs using OCR, detects the source language, and translates documents to English. Built with Next.js and powered by [Case.dev](https://case.dev) APIs.
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Next.js](https://img.shields.io/badge/Next.js-15.1-black)](https://nextjs.org)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-4.0-38bdf8)](https://tailwindcss.com)
+## Features
 
-> 🤖 **Built for Agents**: This repository is designed to be read by AI agents. It includes comprehensive internal documentation (`AGENTS.md` and `skills/`) that guides LLMs in generating production-ready legal tech code.
+- **Document Upload**: Drag-and-drop support for PDFs, images (PNG, JPEG, WebP), RTF, and text files
+- **OCR Processing**: Extract text from scanned documents and images using Case.dev OCR
+- **Language Detection**: Automatically detect the source language from 100+ supported languages
+- **Translation**: Translate documents to English with chunked processing for large files
+- **Split-Pane Viewer**: View original and translated text side-by-side with synchronized scrolling
+- **Bilingual Search**: Search across documents in both original and translated languages
+- **Certified Export**: Generate translation certificates with translator credentials
 
-## 🚀 Overview
+## Case.dev Primitives Used
 
-`create-legal-app` is a modern, opinionated starter kit for building legal technology applications. It provides a solid foundation with Next.js 15, Shadcn UI (Maia theme), and a structure pre-configured for complex legal workflows like document analysis, case management, and secure vaults.
+This application demonstrates integration with the following Case.dev APIs:
 
-**What makes this different?**
-Most starter kits are just code. This kit includes **Instructional Metadata** (Skills) that teach your AI coding assistant (Cursor, Windsurf, etc.) *exactly* how to implement semantic search, OCR pipelines, and legal-specific workflows using the Case.dev SDK.
+| API | Endpoint | Purpose |
+|-----|----------|---------|
+| **OCR** | `POST /ocr/v1/process` | Submit documents for text extraction |
+| | `GET /ocr/v1/:id` | Check OCR job status |
+| | `GET /ocr/v1/:id/download/text` | Download extracted text |
+| **Translation** | `POST /translate/v1/detect` | Detect document language |
+| | `POST /translate/v1/translate` | Translate text to English |
+| **Vaults** | `GET /vault` | List vaults (used for API key verification) |
 
-## ✨ Features & Stack
+## Getting Started
 
-- **Framework**: [Next.js 15](https://nextjs.org) (App Router)
-- **Language**: TypeScript
-- **Styling**: [Tailwind CSS 4](https://tailwindcss.com) + [Shadcn UI](https://ui.shadcn.com) (Maia Preset)
-- **Font**: [Inter](https://rsms.me/inter/) & [Spectral](https://fonts.google.com/specimen/Spectral) (Serif for legal texts)
-- **Package Manager**: [Bun](https://bun.sh)
-- **Agent Skill System**: Dedicated documentation in `skills/` for:
-    - `case-dev`: Legal AI, Vaults, OCR
-    - `database`: Neon / Postgres schemas (Schema ready)
-    - `auth`: Authentication patterns
+### Prerequisites
 
-## 🛠️ Getting Started
+- Node.js 18+ or Bun
+- A Case.dev API key ([Get one here](https://console.case.dev))
 
-### 1. Initialize the Project
+### Installation
 
 ```bash
-git clone https://github.com/CaseMark/create-legal-app.git my-legal-startup
-cd my-legal-startup
+git clone https://github.com/CaseMark/multi-language-processor-OSS.git
+cd multi-language-processor-OSS
 bun install
 ```
 
-### 2. Configure Environment
+### Configuration
 
-Copy the example environment file:
+Copy the environment template:
 
 ```bash
 cp .env.example .env.local
 ```
 
-Fill in your API keys (get your Case.dev keys from the [Case.dev Console](https://console.case.dev)):
+The app uses client-side API key storage. Users enter their Case.dev API key in the UI, which is validated and stored in the browser's localStorage.
 
-```env
-# .env.local
-CASE_API_KEY=sk_case_...
-DATABASE_URL=postgres://...
-```
-
-### 3. Run Development Server
+### Run Development Server
 
 ```bash
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the starter page.
+Open [http://localhost:3000](http://localhost:3000) and enter your Case.dev API key to get started.
 
-## 🤖 For AI Agents
+## How It Works
 
-**Are you an AI?** Start by reading **[AGENTS.md](./AGENTS.md)**.
+1. **Upload**: User uploads a document (PDF, image, or text file)
+2. **Extract**: For images and scanned PDFs, text is extracted via OCR. For digital PDFs, text is extracted client-side using PDF.js
+3. **Detect**: The extracted text is sent to the language detection API
+4. **Translate**: If not already in English, the text is translated in chunks (max 4000 chars per request)
+5. **View**: Documents are displayed in a split-pane viewer with the original and translated text
+6. **Search**: Users can search across all documents in either language
+7. **Export**: Translations can be exported with a certification statement
 
-1.  **Context**: Read `AGENTS.md` to understand the project architecture and principles.
-2.  **Skills**: Before implementing a feature, check the `skills/` directory. For example, if the user asks for "Document Upload", read `skills/case-dev/SKILL.md`.
-3.  **Conventions**: stricta file naming and `kebab-case` for utilities.
+## Project Structure
 
-## 📚 Documentation Structure
+```
+├── app/
+│   ├── api/
+│   │   ├── ocr/          # OCR processing endpoints
+│   │   ├── translate/    # Translation endpoint
+│   │   ├── detect-language/
+│   │   └── verify-key/   # API key validation
+│   └── page.tsx          # Main application page
+├── components/
+│   ├── processor/        # Document processing components
+│   │   ├── DocumentUpload.tsx
+│   │   ├── SplitPaneViewer.tsx
+│   │   ├── BilingualSearch.tsx
+│   │   └── CertifiedExport.tsx
+│   └── ui/               # Shadcn UI components
+├── lib/
+│   ├── document-processor.ts  # Client-side text extraction
+│   ├── case-dev/              # API key management
+│   └── types/                 # TypeScript definitions
+```
 
-- **`/app`**: Next.js App Router (Pages, Layouts, API Routes)
-- **`/components`**: React components (UI primitives in `/ui`, custom in root)
-- **`/lib`**: Shared utilities (Place your `case-dev` client here)
-- **`/skills`**: **The Brain**. Contains Markdown files specifically for AI context.
-    - `/case-dev`: SDK usage, Vaults, Workflows
-    - `/database`: Schema design patterns
-    - `/auth`: Auth flow documentation
+## Supported Languages
 
-## 📄 License
+The application supports 100+ languages including:
 
-This project is licensed under the [Apache 2.0 License](LICENSE).
+- **Western European**: Spanish, French, German, Italian, Portuguese, Dutch
+- **East Asian**: Chinese (Simplified/Traditional), Japanese, Korean
+- **Middle Eastern**: Arabic, Hebrew, Persian, Turkish
+- **South Asian**: Hindi, Bengali, Tamil, Telugu, Urdu
+- **Cyrillic**: Russian, Ukrainian, Bulgarian, Serbian
+
+## Tech Stack
+
+- **Framework**: Next.js 15 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS 4 + Shadcn UI
+- **PDF Processing**: pdfjs-dist
+- **Icons**: Phosphor Icons
+
+## License
+
+[Apache 2.0](LICENSE)

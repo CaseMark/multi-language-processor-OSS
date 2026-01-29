@@ -66,15 +66,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No source language provided' }, { status: 400 });
     }
 
-    // Normalize language codes: zh-CN and zh-TW should just be 'zh' for Google Translate
-    // Google Translate API uses simple language codes
-    const originalSourceLanguage = sourceLanguage;
+    // Normalize Chinese language codes for the translation API
     if (sourceLanguage === 'zh-CN' || sourceLanguage === 'zh-TW') {
       sourceLanguage = 'zh';
-      console.log(`[Translate] Normalized ${originalSourceLanguage} -> ${sourceLanguage}`);
     }
-
-    console.log(`[Translate] Request: ${sourceLanguage} -> en, ${text.length} chars`);
 
     // If already English, return as-is
     if (sourceLanguage === 'en') {
@@ -86,22 +81,15 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    console.log(`[Translate] Translating from ${sourceLanguage} to English...`);
-
-    // For now, just send text as-is without formatting markers
-    // Newlines will be preserved naturally by the translation API
-    const preservedText = text;
-    console.log(`[Translate] Text length: ${text.length} chars`);
-
-    // Split into chunks if needed (Translation API has size limits)
+    // Split into chunks if text exceeds API size limits
     const maxChunkSize = 4000;
     const chunks: string[] = [];
 
-    if (preservedText.length <= maxChunkSize) {
-      chunks.push(preservedText);
+    if (text.length <= maxChunkSize) {
+      chunks.push(text);
     } else {
       // Split on sentence boundaries where possible
-      let remaining = preservedText;
+      let remaining = text;
       while (remaining.length > 0) {
         if (remaining.length <= maxChunkSize) {
           chunks.push(remaining);
@@ -123,14 +111,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log(`[Translate] Processing ${chunks.length} chunk(s)...`);
-
     const translatedChunks: string[] = [];
 
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      console.log(`[Translate] Chunk ${i + 1}/${chunks.length} (${chunk.length} chars)...`);
-
+    for (const chunk of chunks) {
       const requestBody = {
         q: chunk,
         source: sourceLanguage,
@@ -148,37 +131,23 @@ export async function POST(request: NextRequest) {
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`[Translate] API error for ${sourceLanguage}:`);
-        console.error(`  Status: ${response.status}`);
-        console.error(`  Response: ${errorText}`);
-        console.error(`  Request body:`, JSON.stringify({
-          q: chunk.substring(0, 100) + '...',
-          source: sourceLanguage,
-          target: 'en',
-          format: 'html'
-        }, null, 2));
         const langName = LANGUAGE_CODES[sourceLanguage] || sourceLanguage;
-        throw new Error(`Translation API error for ${langName}: ${response.status}. The language code "${sourceLanguage}" may not be supported by the translation service.`);
+        throw new Error(`Translation failed for ${langName}: ${response.status}`);
       }
 
       const data = await response.json();
       const translatedChunk = data.data?.translations?.[0]?.translatedText;
 
       if (!translatedChunk) {
-        console.error('[Translate] Response missing content:', JSON.stringify(data));
         throw new Error('Translation response missing content');
       }
 
       translatedChunks.push(translatedChunk);
     }
 
-    // Join chunks - newlines are preserved naturally
     const fullTranslation = translatedChunks.join('');
-    console.log(`[Translate] Complete: ${fullTranslation.length} chars`);
 
-    // Calculate approximate cost based on character count
-    // Case.dev API pricing: Translation is $0.03 per 1000 characters
+    // Calculate cost ($0.03 per 1000 characters)
     const costPerThousandChars = 0.03;
     const totalCost = (text.length / 1000) * costPerThousandChars;
 

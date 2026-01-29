@@ -97,7 +97,6 @@ async function uploadToVaultsForOCR(file: File): Promise<string> {
   }
 
   const { uploadUrl, objectId } = await uploadResponse.json();
-  console.log(`[DocProcessor] Got upload URL for objectId: ${objectId}`);
 
   // Upload the file directly to the presigned URL
   const putResponse = await fetch(uploadUrl, {
@@ -112,9 +111,7 @@ async function uploadToVaultsForOCR(file: File): Promise<string> {
     throw new Error('Failed to upload file to vault');
   }
 
-  console.log(`[DocProcessor] File uploaded to vault, fetching download URL...`);
-
-  // Now get the download URL by calling the 'get' action
+  // Get the download URL
   const getResponse = await authenticatedFetch('/api/vaults', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -137,7 +134,6 @@ async function uploadToVaultsForOCR(file: File): Promise<string> {
     throw new Error('Vault object does not have a download URL');
   }
 
-  console.log(`[DocProcessor] Got download URL: ${downloadUrl.substring(0, 50)}...`);
   return downloadUrl;
 }
 
@@ -145,7 +141,6 @@ async function uploadToVaultsForOCR(file: File): Promise<string> {
  * Process a document using Case.dev OCR
  */
 async function processWithOCR(file: File, onProgress?: (status: string) => void): Promise<ExtractionResult> {
-  console.log(`[DocProcessor] Starting OCR for ${file.name}`);
   onProgress?.('Uploading document...');
 
   // Upload to Vaults to get a URL
@@ -170,7 +165,6 @@ async function processWithOCR(file: File, onProgress?: (status: string) => void)
   }
 
   const { id: jobId } = await processResponse.json();
-  console.log(`[DocProcessor] OCR job submitted: ${jobId}`);
 
   onProgress?.('Processing OCR...');
 
@@ -193,12 +187,10 @@ async function processWithOCR(file: File, onProgress?: (status: string) => void)
     });
 
     if (!statusResponse.ok) {
-      console.warn(`[DocProcessor] OCR status check failed, attempt ${attempts}`);
       continue;
     }
 
     const status = await statusResponse.json();
-    console.log(`[DocProcessor] OCR status: ${status.status}`);
 
     if (status.status === 'completed') {
       // Status is complete, now download the actual text
@@ -222,8 +214,6 @@ async function processWithOCR(file: File, onProgress?: (status: string) => void)
       const result = await downloadResponse.json();
       const text = result.text || '';
       const pageCount = status.page_count || status.pageCount || 1;
-
-      console.log(`[DocProcessor] OCR complete: ${text.length} chars extracted, ${pageCount} pages`);
 
       return {
         text,
@@ -306,11 +296,8 @@ async function extractTextFromPDF(file: File, onProgress?: (status: string) => v
 
     // If we got very little text, the PDF might be scanned/image-based - use OCR
     if (fullText.trim().length < 50 && pageCount > 0) {
-      console.log('[DocProcessor] PDF appears to be scanned or image-based, using OCR');
       return processWithOCR(file, onProgress);
     }
-
-    console.log(`[DocProcessor] Extracted ${fullText.length} chars from ${pageCount} pages`);
 
     return {
       text: fullText,
@@ -320,9 +307,8 @@ async function extractTextFromPDF(file: File, onProgress?: (status: string) => v
   } catch (error) {
     // If PDF extraction fails, try OCR as fallback
     if (error instanceof Error && error.message.includes('OCR')) {
-      throw error; // Re-throw OCR errors
+      throw error;
     }
-    console.log('[DocProcessor] PDF extraction failed, trying OCR fallback');
     return processWithOCR(file, onProgress);
   }
 }
@@ -383,18 +369,14 @@ async function extractTextFromRTF(file: File): Promise<ExtractionResult> {
       }
     }
 
-    // Join paragraphs with newlines
     const text = textParts.join('\n');
-
-    console.log(`[DocProcessor] Extracted ${text.length} chars from RTF (${textParts.length} paragraphs)`);
 
     return {
       text: text.trim(),
       pageCount: 1,
       method: 'rtf-text',
     };
-  } catch (error) {
-    console.error('[DocProcessor] RTF extraction error:', error);
+  } catch {
     throw new Error('Failed to extract text from RTF file. Please ensure the file is a valid RTF document.');
   }
 }
@@ -403,7 +385,6 @@ async function extractTextFromRTF(file: File): Promise<ExtractionResult> {
  * Extract text from an image using OCR
  */
 async function extractTextFromImage(file: File, onProgress?: (status: string) => void): Promise<ExtractionResult> {
-  console.log(`[DocProcessor] Processing image with OCR: ${file.name}`);
   return processWithOCR(file, onProgress);
 }
 
@@ -434,8 +415,6 @@ export async function processDocument(
 ): Promise<ExtractionResult> {
   const mimeType = file.type;
   const fileName = file.name.toLowerCase();
-
-  console.log(`[DocProcessor] Processing ${file.name} (${mimeType})`);
 
   if (mimeType === 'text/plain') {
     return extractTextFromPlainText(file);

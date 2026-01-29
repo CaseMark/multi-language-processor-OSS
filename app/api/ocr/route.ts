@@ -118,7 +118,6 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await response.json();
-        console.log('[OCR] Status response:', result.status);
         return NextResponse.json(result);
       }
 
@@ -155,10 +154,8 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        // For text format, return the text directly
         if (format === 'text') {
           const text = await response.text();
-          console.log('[OCR] Downloaded text length:', text.length);
           return NextResponse.json({ text });
         }
 

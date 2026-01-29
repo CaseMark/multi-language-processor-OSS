@@ -13,9 +13,8 @@ import {
   Spinner
 } from '@phosphor-icons/react';
 import { DocumentUpload, SplitPaneViewer, BilingualSearch, CertifiedExport } from '@/components/processor';
-import { DemoBanner } from '@/components/demo/DemoBanner';
 import { LanguageCode, SUPPORTED_LANGUAGES } from '@/lib/types';
-import { loadDocuments, saveDocuments, loadUsage, incrementUsage, deleteDocument } from '@/lib/storage/document-storage';
+import { loadDocuments, saveDocuments, deleteDocument } from '@/lib/storage/document-storage';
 
 interface ProcessedDocument {
   id: string;
@@ -37,9 +36,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedChunks, setHighlightedChunks] = useState<{ original: string[]; translated: string[] } | undefined>();
   const [showExportModal, setShowExportModal] = useState(false);
-  const [tokensUsed, setTokensUsed] = useState(0);
-  const [priceUsed, setPriceUsed] = useState(0);
-  const [sessionResetAt, setSessionResetAt] = useState<string>('');
   const [mounted, setMounted] = useState(false);
 
   // Load documents from localStorage on mount
@@ -49,10 +45,6 @@ export default function Home() {
     if (storedDocs.length > 0) {
       setDocuments(storedDocs as ProcessedDocument[]);
     }
-    const usage = loadUsage();
-    setTokensUsed(usage.tokensUsed);
-    setPriceUsed(usage.sessionPrice);
-    setSessionResetAt(usage.sessionResetAt);
   }, []);
 
   // Save documents to localStorage whenever they change
@@ -85,13 +77,6 @@ export default function Home() {
     });
     setSelectedDocument(newDoc);
     setViewMode('viewer');
-
-    // Update usage
-    const estimatedTokens = Math.ceil((doc.originalText.length + doc.translatedText.length) / 4);
-    const cost = doc.cost || 0;
-    incrementUsage(estimatedTokens, 1, doc.pageCount, cost);
-    setTokensUsed(prev => prev + estimatedTokens);
-    setPriceUsed(prev => prev + cost);
   }, []);
 
   // Handle document selection
@@ -129,9 +114,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Demo Banner */}
-      <DemoBanner />
-
       {/* Header */}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -309,9 +291,6 @@ export default function Home() {
                   onDocumentProcessed={handleDocumentProcessed}
                   isProcessing={isProcessing}
                   setIsProcessing={setIsProcessing}
-                  documentsUsed={documents.length}
-                  tokensUsed={tokensUsed}
-                  priceUsed={priceUsed}
                 />
 
                 {/* Features */}

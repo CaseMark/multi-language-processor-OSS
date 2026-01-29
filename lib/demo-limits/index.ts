@@ -1,1 +1,0 @@
-export { DEMO_LIMITS, LIMIT_DESCRIPTIONS, UPGRADE_MESSAGES } from './config';

@@ -3,11 +3,7 @@
 import React, { useState, useCallback } from 'react';
 import { Upload, FileText, Image as ImageIcon, Spinner, CheckCircle, WarningCircle, Globe } from '@phosphor-icons/react';
 import { SUPPORTED_LANGUAGES, LanguageCode, ProcessingStatus } from '@/lib/types';
-import { DEMO_LIMITS } from '@/lib/demo-limits/config';
-import { UsageMeter } from '@/components/demo/UsageMeter';
-import { LimitWarning } from '@/components/demo/LimitWarning';
 import { processDocument } from '@/lib/document-processor';
-import { loadUsage } from '@/lib/storage/document-storage';
 
 // Image file types supported for OCR
 const IMAGE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/tiff'];
@@ -28,10 +24,9 @@ interface DocumentUploadProps {
   }) => void;
   isProcessing: boolean;
   setIsProcessing: (processing: boolean) => void;
-  documentsUsed: number;
-  tokensUsed: number;
-  priceUsed?: number;
 }
+
+const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 
 const STATUS_MESSAGES: Record<ProcessingStatus, string> = {
   idle: 'Ready to upload',
@@ -49,9 +44,6 @@ export default function DocumentUpload({
   onDocumentProcessed,
   isProcessing,
   setIsProcessing,
-  documentsUsed,
-  tokensUsed,
-  priceUsed = 0,
 }: DocumentUploadProps) {
   const [dragActive, setDragActive] = useState(false);
   const [status, setStatus] = useState<ProcessingStatus>('idle');
@@ -59,7 +51,6 @@ export default function DocumentUpload({
   const [detectedLanguage, setDetectedLanguage] = useState<LanguageCode | null>(null);
   const [detectedLanguageName, setDetectedLanguageName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [limitReached, setLimitReached] = useState<'document' | 'token' | 'price' | null>(null);
 
   const handleDrag = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -74,18 +65,6 @@ export default function DocumentUpload({
   const processFile = async (file: File) => {
     if (!file) return;
 
-    // Check document limit
-    if (documentsUsed >= DEMO_LIMITS.ocr.maxDocumentsPerSession) {
-      setLimitReached('document');
-      return;
-    }
-
-    // Check price limit
-    if (priceUsed >= DEMO_LIMITS.pricing.sessionPriceLimit) {
-      setLimitReached('price');
-      return;
-    }
-
     // Validate file type - PDF, RTF, TXT, and images
     const validDocTypes = ['application/pdf', 'text/plain', 'application/rtf', 'text/rtf'];
     const fileName = file.name.toLowerCase();
@@ -97,15 +76,14 @@ export default function DocumentUpload({
       return;
     }
 
-    // Validate file size
-    if (file.size > DEMO_LIMITS.ocr.maxFileSize) {
-      setError(`File too large. Maximum size is ${DEMO_LIMITS.ocr.maxFileSize / 1024 / 1024}MB`);
+    // Validate file size (50MB max)
+    if (file.size > MAX_FILE_SIZE) {
+      setError('File too large. Maximum size is 50MB.');
       return;
     }
 
     setIsProcessing(true);
     setError(null);
-    setLimitReached(null);
     setDetectedLanguage(null);
     setDetectedLanguageName(null);
 
@@ -338,7 +316,7 @@ export default function DocumentUpload({
       processFile(e.dataTransfer.files[0]);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [documentsUsed]);
+  }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -346,58 +324,8 @@ export default function DocumentUpload({
     }
   };
 
-  if (limitReached) {
-    return (
-      <div className="w-full max-w-2xl mx-auto space-y-4">
-        <LimitWarning type={limitReached} />
-        <button
-          onClick={() => setLimitReached(null)}
-          className="text-sm text-gray-500 hover:text-gray-700 underline"
-        >
-          Try a different file
-        </button>
-      </div>
-    );
-  }
-
-  // Calculate time remaining for session
-  const calculateTimeRemaining = () => {
-    const usage = loadUsage();
-    const now = new Date();
-    const resetTime = new Date(usage.sessionResetAt);
-    const msRemaining = resetTime.getTime() - now.getTime();
-
-    if (msRemaining <= 0) return '0h 0m';
-
-    const hoursRemaining = Math.floor(msRemaining / (1000 * 60 * 60));
-    const minutesRemaining = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));
-
-    return `${hoursRemaining}h ${minutesRemaining}m`;
-  };
-
-  const formatPrice = (price: number) => `$${price.toFixed(2)}`;
-
   return (
     <div className="w-full max-w-2xl mx-auto">
-      {/* Usage Stats */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <UsageMeter
-          label="Session Limit"
-          used={priceUsed}
-          limit={DEMO_LIMITS.pricing.sessionPriceLimit}
-          unit=""
-          showPercentage={true}
-        />
-        <UsageMeter
-          label="Documents"
-          used={documentsUsed}
-          limit={DEMO_LIMITS.ocr.maxDocumentsPerSession}
-        />
-      </div>
-      <div className="text-xs text-gray-500 mb-4 text-center">
-        Session resets in {calculateTimeRemaining()}
-      </div>
-
       {/* Upload Area */}
       <div
         className={`
